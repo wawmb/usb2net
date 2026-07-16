@@ -1,0 +1,77 @@
+{
+  "bridges": [
+    {
+      "name": "网络串口-1",
+      "serial_port": "COM11",
+      "baudrate": 115200,
+      "tcp_port": 9001,
+      "enabled": true,
+      "databits": 8,
+      "parity": "N",
+      "stopbits": 1.0,
+      "flow_control": "none",
+      "auto_reconnect": true,
+      "telnet_mode": true,
+      "web_port": 9211
+    },
+    {
+      "name": "网络串口-2",
+      "serial_port": "",
+      "baudrate": 9600,
+      "tcp_port": 9002,
+      "enabled": false,
+      "databits": 8,
+      "parity": "N",
+      "stopbits": 1,
+      "flow_control": "none",
+      "auto_reconnect": true,
+      "telnet_mode": true,
+      "web_port": 9212
+    },
+    {
+      "name": "网络串口-3",
+      "serial_port": "",
+      "baudrate": 115200,
+      "tcp_port": 9003,
+      "enabled": false,
+      "databits": 8,
+      "parity": "N",
+      "stopbits": 1,
+      "flow_control": "none",
+      "auto_reconnect": true,
+      "telnet_mode": true,
+      "web_port": 9213
+    },
+    {
+      "name": "网络串口-4",
+      "serial_port": "",
+      "baudrate": 115200,
+      "tcp_port": 9004,
+      "enabled": false,
+      "databits": 8,
+      "parity": "N",
+      "stopbits": 1,
+      "flow_control": "none",
+      "auto_reconnect": true,
+      "telnet_mode": true,
+      "web_port": 9214
+    }
+  ],
+  "heartbeat": {
+    "enabled": false,
+    "server_ip": "192.168.96.248",
+    "server_port": 7777,
+    "macaddr": "6892D0111128",
+    "client_module_id": 1,
+    "server_module_id": 3,
+    "msgtype_heartbeat": 0,
+    "msgtype_ack": 0,
+    "msgtype_err": -1,
+    "msgtype_report_ser2net": 13,
+    "ser2net_module_id": 6,
+    "interval": 1.0,
+    "max_lost_reset": 30,
+    "local_port": 9999,
+    "bind_local_port": false
+  }
+}

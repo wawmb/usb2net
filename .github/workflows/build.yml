@@ -1,0 +1,60 @@
+name: Build USB2Net
+
+# 触发：push 到 master、打 v* 标签、PR 到 master，或手动触发
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller (USB2Net.spec)
+        run: cd src && python -m PyInstaller --distpath ../dist --workpath ../build USB2Net.spec
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: USB2Net-exe
+          path: dist/USB2Net.exe
+
+  release:
+    name: Publish Release (on tag)
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download EXE artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: USB2Net-exe
+          path: release-asset
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-asset/USB2Net.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

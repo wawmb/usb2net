@@ -1,0 +1,26 @@
+# ── PyInstaller 构建产物（由本地构建或 CI 生成，不应提交）──
+build/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+
+# ── 虚拟环境 ──
+.venv/
+venv/
+
+# ── Windows 保留名文件（早期构建脚本误产生的残留，无害但应忽略）──
+nul
+
+# ── 日志 ──
+*.log
+
+# ── 编辑器 / IDE ──
+.vscode/
+.idea/
+*.swp
+
+# ── 操作系统垃圾文件 ──
+Thumbs.db
+Desktop.ini
+.DS_Store
