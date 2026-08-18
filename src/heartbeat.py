@@ -59,6 +59,32 @@ class HeartbeatConfig:
         return cls(**filtered)
 
 
+@dataclass
+class GetCmdConfig:
+    """GetCmd (IP上报) 指令配置——按需发送，独立于心跳循环。
+
+    对应 C 代码 comm_send_getcmd() 中 data 的字段，字段名与 C 代码完全一致。
+    仅 server_ip / server_port / macaddr 复用心跳配置（发送时从 HeartbeatConfig 取）。
+    """
+
+    version: str = ""  # 版本号，UI 中填充软件版本
+    ipaddr: str = ""  # IP 地址，UI 中由按钮获取本机 IP
+    mainstep: int = 0  # 主步骤
+    substep: int = 0  # 子步骤
+    msgtype: int = 4  # 消息类型（默认4，对应 C_MSG_TYPE_GET_CMD，可自定义）
+    src_moduleid: int = 1  # 源模块ID（独立于心跳配置的 client_module_id）
+    dst_moduleid: int = 3  # 目标模块ID（独立于心跳配置的 server_module_id）
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "GetCmdConfig":
+        valid = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in d.items() if k in valid}
+        return cls(**filtered)
+
+
 # ── 回调类型 ──────────────────────────────────────────────────
 
 HeartbeatLogCallback = Callable[[str, str], None]  # (level, message)
@@ -92,6 +118,7 @@ class HeartbeatClient:
         self._send_thread: Optional[threading.Thread] = None
         self._recv_thread: Optional[threading.Thread] = None
         self.state = "已停止"
+        self._factory_pktseq = 0  # GetCmd 报文序列号（对应 C 代码 factory_pktseq）
 
     # ── 公共接口 ──
 
@@ -136,6 +163,55 @@ class HeartbeatClient:
             self._sock = None
         self._set_state("已停止")
         self._log("info", "心跳客户端已停止")
+
+    def send_getcmd(self, version: str = "", ipaddr: str = "",
+                    mainstep: int = 0, substep: int = 0,
+                    msgtype: int = 4, src_moduleid: int = 1,
+                    dst_moduleid: int = 3):
+        """按需发送一次 GetCmd 指令包（UDP），独立于心跳循环。
+
+        对应 C 代码的 comm_send_getcmd() + comm_sendpkt()，字段名完全一致：
+          顶层: src_moduleid / dst_moduleid / msgtype / factory_pktseq / data
+          data: macaddr / version / ipaddr / mainstep / substep
+
+        - msgtype / src_moduleid / dst_moduleid 均为独立可配置值（默认 4/1/3）
+        - 仅复用心跳配置中的 server_ip / server_port / macaddr
+        - 心跳在运行则复用 self._sock；否则创建临时 UDP socket，发完即关
+        """
+        pkt = {
+            "src_moduleid": src_moduleid,
+            "dst_moduleid": dst_moduleid,
+            "msgtype": msgtype,
+            "factory_pktseq": self._factory_pktseq,
+            "data": {
+                "macaddr": self.config.macaddr,
+                "version": version,
+                "ipaddr": ipaddr,
+                "mainstep": mainstep,
+                "substep": substep,
+            },
+        }
+        self._factory_pktseq += 1
+
+        msg = json.dumps(pkt, separators=(",", ":")).encode("utf-8")
+        target = (self.config.server_ip, self.config.server_port)
+
+        if self._sock:
+            # 心跳在运行，复用现有 socket
+            try:
+                self._sock.sendto(msg, target)
+                self._log("info", f"GetCmd 已发送: {msg.decode('utf-8', 'ignore')}")
+            except Exception as e:
+                self._log("error", f"GetCmd 发送失败: {e}")
+        else:
+            # 心跳未运行，创建临时 socket
+            try:
+                tmp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                tmp_sock.sendto(msg, target)
+                tmp_sock.close()
+                self._log("info", f"GetCmd 已发送(临时socket): {msg.decode('utf-8', 'ignore')}")
+            except Exception as e:
+                self._log("error", f"GetCmd 发送失败(临时socket): {e}")
 
     # ── 内部实现 ──
 
