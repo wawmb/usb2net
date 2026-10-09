@@ -43,6 +43,7 @@ try:
     from bridge import BridgeManager, BridgeConfig, BridgeState
     from heartbeat import HeartbeatConfig, HeartbeatClient, GetCmdConfig
     from webterm import WebTerminalHub, open_browser
+    from single_instance import SingleInstance, raise_window
 except ImportError as _imp_err:
     # 依赖缺失（如 pyserial 未装 / 用了错误的 Python）：弹窗提示而非静默闪退
     _need = (
@@ -112,7 +113,7 @@ COLOR_TINT_GREEN = "#ecfdf5"
 COLOR_TINT_ORANGE = "#fff7ed"
 COLOR_TINT_PURPLE = "#faf5ff"
 
-APP_VERSION = "USB2Net V2.0"
+APP_VERSION = "USB2Net V2.1"
 
 # IP上报 功能入口密码（固定，输入正确才能进入设置）
 GETCMD_PASSWORD = "9527"
@@ -2388,9 +2389,162 @@ def _show_crash_error(exc: Exception):
     traceback.print_exc()
 
 
+def _show_already_running(notified: bool):
+    """
+    重复启动时的提示弹窗。
+
+    此时主窗口尚未创建，因此自建临时 root 承载弹窗。用 Toplevel 自绘而非
+    messagebox，原因有二：
+      1. messagebox 弹出的窗口不继承 root 的 topmost 属性，会被刚刚
+         置前的已有实例窗口盖住；
+      2. 可以沿用应用配色与图标，视觉上与主程序一致。
+    弹窗加 topmost 后还会周期性重置一次，抵御已有实例置前抢占 Z 序。
+    """
+    try:
+        import tkinter as tk
+
+        holder = tk.Tk()
+        holder.withdraw()
+
+        dlg = tk.Toplevel(holder)
+        dlg.withdraw()
+        dlg.title("USB2Net 已在运行")
+        dlg.configure(bg=COLOR_CARD)
+        dlg.resizable(False, False)
+        dlg.attributes("-topmost", True)
+        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
+
+        # 沿用应用图标
+        try:
+            _icon_ref = None
+            _png = _resource_path("USB2Net.png")
+            if os.path.exists(_png):
+                _icon_ref = tk.PhotoImage(file=_png)
+                dlg.iconphoto(True, _icon_ref)
+            else:
+                _ico = _resource_path("USB2Net.ico")
+                if os.path.exists(_ico):
+                    dlg.iconbitmap(_ico)
+        except Exception:
+            _icon_ref = None
+
+        # ── 内容 ──
+        header = tk.Frame(dlg, bg=COLOR_HEADER, height=64)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        tk.Label(
+            header,
+            text="USB2Net 已在运行",
+            bg=COLOR_HEADER,
+            fg="#ffffff",
+            font=("Microsoft YaHei UI", 14, "bold"),
+        ).pack(side="left", padx=20)
+
+        body = tk.Frame(dlg, bg=COLOR_CARD)
+        body.pack(fill="both", expand=True, padx=24, pady=(20, 8))
+
+        detail = (
+            "已把正在运行的窗口切换到前台，\n本次启动不会创建新的后台进程。"
+            if notified
+            else "本次启动不会创建新的后台进程。\n（该实例可能正在退出，稍后重试即可）"
+        )
+        tk.Label(
+            body,
+            text=detail,
+            bg=COLOR_CARD,
+            fg=COLOR_TEXT,
+            font=("Microsoft YaHei UI", 10),
+            justify="left",
+            anchor="w",
+        ).pack(fill="x")
+        tk.Label(
+            body,
+            text="如需重启，请先关闭正在运行的窗口。",
+            bg=COLOR_CARD,
+            fg=COLOR_TEXT_SEC,
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+            justify="left",
+        ).pack(fill="x", pady=(8, 0))
+
+        # ── 按钮 ──
+        footer = tk.Frame(dlg, bg=COLOR_CARD)
+        footer.pack(fill="x", padx=24, pady=(8, 20))
+
+        def _close():
+            try:
+                dlg.destroy()
+            finally:
+                holder.destroy()
+
+        btn = tk.Button(
+            footer,
+            text="知道了",
+            command=_close,
+            bg=COLOR_PRIMARY,
+            fg="#ffffff",
+            activebackground=COLOR_PRIMARY_DARK,
+            activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            font=("Microsoft YaHei UI", 10),
+            padx=28,
+            pady=7,
+            highlightthickness=0,
+        )
+        btn.pack(side="right")
+        # 回车 / Esc 都能关闭
+        dlg.bind("<Return>", lambda _e: _close())
+        dlg.bind("<Escape>", lambda _e: _close())
+
+        # 居中于屏幕
+        dlg.update_idletasks()
+        _w, _h = dlg.winfo_width(), dlg.winfo_height()
+        _sw, _sh = holder.winfo_screenwidth(), holder.winfo_screenheight()
+        dlg.geometry(f"{_w}x{_h}+{(_sw - _w) // 2}+{(_sh - _h) // 3}")
+        dlg.deiconify()
+        dlg.lift()
+        dlg.focus_force()
+        btn.focus_set()
+
+        # 已有实例的置前动作可能稍后才发生，这里周期性把弹窗拉回顶层，
+        # 避免提示一闪就被主窗口压住看不见。
+        def _keep_on_top():
+            if dlg.winfo_exists():
+                try:
+                    dlg.attributes("-topmost", True)
+                    dlg.lift()
+                    dlg.focus_force()
+                except Exception:
+                    return
+                dlg.after(250, _keep_on_top)
+
+        dlg.after(250, _keep_on_top)
+        holder.mainloop()
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
+    # ── 单实例保护 ──
+    # 同一台机器只允许一个 USB2Net 后台运行。判重在创建任何串口/心跳/
+    # Web 终端之前完成，重复启动时提示用户并把已有窗口顶到前台，然后退出。
+    _guard = SingleInstance()
+    if not _guard.acquire():
+        _notified = _guard.notify_running()
+        _show_already_running(_notified)
+        # 退出码保持 0：这是正常流程，run.bat 会把非 0 当作异常来报错
+        sys.exit(0)
+
     try:
         app = USB2NetApp()
+        # 已有实例请求置前：激活服务在后台线程发信号，必须转回主线程执行
+        _guard.start_activation_server(
+            lambda: app._call_on_main(raise_window, app.root)
+        )
         app.run()
     except Exception as exc:
         _show_crash_error(exc)
+    finally:
+        _guard.release()

@@ -20,6 +20,7 @@ nul
 .idea/
 .workbuddy/
 *.swp
+*.code-workspace
 
 # ── 操作系统垃圾文件 ──
 Thumbs.db
