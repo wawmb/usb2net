@@ -342,8 +342,18 @@ class SerialTCPBridge:
                             client.sendall(data)
                         except Exception:
                             dead_clients.append(client)
+                    # 不能在持锁时调用 _remove_client：它内部会再次申请同一把
+                    # 不可重入的 self._lock，导致本线程自锁、串口读循环永久停摆。
+                    # 锁内只摘除字典项并更新计数，socket 关闭留到锁外执行，
+                    # 广播仍为来即转，不引入缓冲或排队。
                     for dc in dead_clients:
-                        self._remove_client(dc)
+                        self._tcp_clients.pop(dc, None)
+                    self.client_count = len(self._tcp_clients)
+                for dc in dead_clients:
+                    try:
+                        dc.close()
+                    except Exception:
+                        pass
 
     def _close_serial(self):
         """关闭串口连接"""
