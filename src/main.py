@@ -76,13 +76,16 @@ except ImportError as _imp_err:
 
 
 # ── 颜色 & 样式常量 ───────────────────────────────────────────
+# 深色专业风（GitHub Dark 系）：全暗色界面，与深色日志区天然统一。
+# 注意：深色下 hover 用"更亮一档"而不是更深，PRIMARY_DARK 实际是亮色变体。
 
-COLOR_BG = "#f0f2f5"
+COLOR_BG = "#f6f7fb"  # 页面底色（冷调浅灰，衬托白色圆角卡片）
 COLOR_CARD = "#ffffff"
 COLOR_PRIMARY = "#2563eb"
 COLOR_PRIMARY_DARK = "#1d4ed8"
-COLOR_PRIMARY_LIGHT = "#dbeafe"
-COLOR_HEADER = "#1a1f36"
+COLOR_PRIMARY_LIGHT = "#e8f0fe"
+COLOR_ACCENT = "#1e40af"  # 表头 / 强调文字
+COLOR_HEADER = "#101827"
 COLOR_HEADER_ACCENT = "#3b82f6"
 COLOR_SUCCESS = "#16a34a"
 COLOR_SUCCESS_LIGHT = "#dcfce7"
@@ -90,30 +93,49 @@ COLOR_WARNING = "#f59e0b"
 COLOR_WARNING_LIGHT = "#fef3c7"
 COLOR_ERROR = "#dc2626"
 COLOR_ERROR_LIGHT = "#fee2e2"
-COLOR_TEXT = "#1f2937"
+COLOR_TEXT = "#111827"
 COLOR_TEXT_SEC = "#6b7280"
 COLOR_TEXT_MUTED = "#9ca3af"
 COLOR_BORDER = "#e5e7eb"
-COLOR_BORDER_LIGHT = "#f3f4f6"
-COLOR_ROW_ALT = "#fafbfc"
-COLOR_ROW_HOVER = "#eff6ff"
-COLOR_LOG_BG = "#1a1b26"
+COLOR_BORDER_LIGHT = "#f1f3f7"
+COLOR_ROW_ALT = "#fafbfd"
+COLOR_ROW_HOVER = "#eff4ff"
+COLOR_LOG_BG = "#11131f"
 COLOR_LOG_FG = "#c0caf5"
-COLOR_STATUS_BG = "#f8f9fa"
+COLOR_STATUS_BG = "#fafbfd"
 
-# 侧栏（深色导航）
-COLOR_SIDEBAR = "#1e293b"
-COLOR_SIDEBAR_HOVER = "#334155"
+# 侧栏（深色导航，与浅色内容区形成层次）
+COLOR_SIDEBAR = "#0f172a"
+COLOR_SIDEBAR_HOVER = "#1c2740"
 COLOR_SIDEBAR_TEXT = "#cbd5e1"
-COLOR_SIDEBAR_MUTED = "#64748b"
+COLOR_SIDEBAR_MUTED = "#5b6b85"
 
-# 统计卡片底色
+# 统计卡片徽章底色
 COLOR_TINT_BLUE = "#eff6ff"
 COLOR_TINT_GREEN = "#ecfdf5"
 COLOR_TINT_ORANGE = "#fff7ed"
 COLOR_TINT_PURPLE = "#faf5ff"
 
-APP_VERSION = "USB2Net V2.1"
+# 页头渐变两端（hero 条）
+COLOR_HERO_A = "#1e3a8a"
+COLOR_HERO_B = "#2563eb"
+# 圆角卡的柔和投影色（画在卡片下方偏移 2px）
+COLOR_SHADOW = "#e7ebf3"
+
+# ── 字体层级 ──
+# Segoe UI 是 Windows 界面字体；Consolas 是等宽标配，用于 IP / 日志。
+FONT = "Segoe UI"
+FONT_MONO = "Consolas"
+F_PAGE_TITLE = (FONT, 17, "bold")
+F_PAGE_SUB = (FONT, 9)
+F_SECTION = (FONT, 11, "bold")
+F_BODY = (FONT, 9)
+F_BODY_BOLD = (FONT, 9, "bold")
+F_SMALL = (FONT, 8)
+F_CARD_NUM = (FONT, 21, "bold")
+F_MONO_BOLD = (FONT_MONO, 12, "bold")
+
+APP_VERSION = "USB2Net V3.0"
 
 # IP上报 功能入口密码（固定，输入正确才能进入设置）
 GETCMD_PASSWORD = "9527"
@@ -131,13 +153,37 @@ def _get_local_ip():
         return "127.0.0.1"
 
 
+def _get_all_local_ips():
+    """
+    获取本机全部非回环 IPv4 地址，主网卡（默认出口）排在第一位。
+
+    第一位用 UDP connect 探测得到的"主 IP"，其余通过主机名解析补充，
+    这样多网卡 / 虚拟机网卡的地址也能一并列出。任何一步失败都安全退化。
+    """
+    ips = []
+
+    primary = _get_local_ip()
+    if primary and not primary.startswith("127."):
+        ips.append(primary)
+
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            addr = info[4][0]
+            if addr and not addr.startswith("127.") and addr not in ips:
+                ips.append(addr)
+    except Exception:
+        pass
+
+    return ips or [primary or "127.0.0.1"]
+
+
 # 状态 → 颜色 & 文字（● 前缀营造状态灯效果）
 STATE_STYLE = {
-    BridgeState.STOPPED: ("#9e9e9e", "● 已停止"),
-    BridgeState.STARTING: ("#2196f3", "● 启动中"),
-    BridgeState.RUNNING: ("#4caf50", "● 运行中"),
-    BridgeState.ERROR: ("#f44336", "● 错误"),
-    BridgeState.WAITING: ("#ff9800", "● 等待设备"),
+    BridgeState.STOPPED: ("#94a3b8", "● 已停止"),
+    BridgeState.STARTING: ("#3b82f6", "● 启动中"),
+    BridgeState.RUNNING: ("#16a34a", "● 运行中"),
+    BridgeState.ERROR: ("#dc2626", "● 错误"),
+    BridgeState.WAITING: ("#f59e0b", "● 等待设备"),
 }
 
 # 状态→简化文字（用于状态栏/统计）
@@ -148,6 +194,126 @@ STATE_TEXT = {
     BridgeState.ERROR: "错误",
     BridgeState.WAITING: "等待设备",
 }
+
+
+# ── 自绘容器组件 ──────────────────────────────────────────────
+# tkinter 原生没有圆角与渐变，控件堆在一起容易显得"朴素"。
+# 这里用 Canvas 自绘补上，是让界面脱离原生观感的关键。
+
+
+def _mix_color(c1: str, c2: str, t: float) -> str:
+    """线性插值两个 #rrggbb 颜色，t=0 取 c1，t=1 取 c2。"""
+    r1, g1, b1 = int(c1[1:3], 16), int(c1[3:5], 16), int(c1[5:7], 16)
+    r2, g2, b2 = int(c2[1:3], 16), int(c2[3:5], 16), int(c2[5:7], 16)
+    return "#%02x%02x%02x" % (
+        int(r1 + (r2 - r1) * t),
+        int(g1 + (g2 - g1) * t),
+        int(b1 + (b2 - b1) * t),
+    )
+
+
+class RoundedCard(tk.Canvas):
+    """
+    圆角卡片容器。子控件放进 .body，用法与 tk.Frame 基本一致：
+
+        card = RoundedCard(parent, radius=16)
+        tk.Label(card.body, ...).pack(...)
+
+    尺寸由外部布局决定：用 pack(fill="both", expand=True) 或显式给 height。
+    """
+
+    def __init__(
+        self,
+        master,
+        radius=16,
+        fill=COLOR_CARD,
+        bg=None,
+        padx=0,
+        pady=0,
+        shadow=None,
+        **kw,
+    ):
+        # width/height 默认固定为 1：让画布不参与同级控件的尺寸竞争。
+        # 否则画布的 request 会被 _redraw 里给 body 设尺寸的反馈反向锁死
+        # （先声明的卡片会吃掉后声明的卡片；折叠日志时高度也收不回来）。
+        # 实际大小一律交给外层 pack/grid 的 expand 决定。
+        kw.setdefault("width", 1)
+        kw.setdefault("height", 1)
+        super().__init__(
+            master,
+            bg=bg if bg is not None else COLOR_BG,
+            highlightthickness=0,
+            bd=0,
+            **kw,
+        )
+        self.radius = radius
+        self.fill = fill
+        self.shadow = shadow
+        self._padx, self._pady = padx, pady
+        self.body = tk.Frame(self, bg=fill)
+        self._win = self.create_window(padx, pady, window=self.body, anchor="nw")
+        self.bind("<Configure>", self._redraw)
+
+    def _redraw(self, _e=None):
+        w, h = self.winfo_width(), self.winfo_height()
+        if w <= 1 or h <= 1:
+            return
+        self.delete("card")
+        r = max(0, min(self.radius, w // 2, h // 2))
+        if self.shadow:
+            # 先画一层偏移的淡色圆角，露出 2px 边当柔和投影
+            self._rounded(0, 0, w, h, r, self.shadow, "card")
+            self._rounded(0, 0, w - 2, h - 2, r, self.fill, "card")
+        else:
+            self._rounded(0, 0, w - 1, h - 1, r, self.fill, "card")
+        self.itemconfigure(
+            self._win,
+            width=max(1, w - self._padx * 2 - 2),
+            height=max(1, h - self._pady * 2 - 2),
+        )
+
+    def _rounded(self, x0, y0, x1, y1, r, color, tag):
+        """圆角矩形：两条矩形 + 四个 90 度圆弧拼出来"""
+        self.create_rectangle(x0 + r, y0, x1 - r + 1, y1, fill=color, outline="", tags=tag)
+        self.create_rectangle(x0, y0 + r, x1 + 1, y1 - r + 1, fill=color, outline="", tags=tag)
+        for cx, cy, a0 in (
+            (x0 + r, y0 + r, 90),
+            (x1 - r, y0 + r, 0),
+            (x0 + r, y1 - r, 180),
+            (x1 - r, y1 - r, 270),
+        ):
+            self.create_arc(
+                cx - r,
+                cy - r,
+                cx + r,
+                cy + r,
+                start=a0,
+                extent=90,
+                fill=color,
+                outline="",
+                tags=tag,
+            )
+
+
+class GradientBar(tk.Canvas):
+    """纯渐变装饰条（横向）。不放子控件，只作视觉点缀。"""
+
+    def __init__(self, master, height=4, c1=COLOR_HERO_A, c2=COLOR_HERO_B, **kw):
+        super().__init__(
+            master, height=height, highlightthickness=0, bd=0, **kw
+        )
+        self.c1, self.c2 = c1, c2
+        self.bind("<Configure>", self._paint)
+
+    def _paint(self, _e=None):
+        w, h = self.winfo_width(), self.winfo_height()
+        if w <= 1 or h <= 1:
+            return
+        self.delete("grad")
+        for i in range(w):
+            self.create_line(
+                i, 0, i, h, fill=_mix_color(self.c1, self.c2, i / max(1, w - 1)), tags="grad"
+            )
 
 
 class AddEditBridgeDialog(tk.Toplevel):
@@ -212,6 +378,7 @@ class AddEditBridgeDialog(tk.Toplevel):
                             "230400",
                             "460800",
                             "921600",
+                            "1500000",
                         ]
                     },
                 ),
@@ -911,6 +1078,18 @@ class USB2NetApp:
         self._auto_scroll = True
         self._show_hex = False
         self._log_expanded = True  # 日志面板是否展开
+        self._local_ips = ["127.0.0.1"]  # 本机 IPv4 列表，主 IP 在前（守护线程维护）
+        # Treeview 行标签：状态色 / 斑马纹 / hover 三者叠加，由 _apply_row_tags 统一落地
+        self._row_base_tags = {}  # iid -> 基础 tag 元组（不含 hover）
+        self._hover_row = None
+        self._empty_shown = False
+        self._log_lines = 0  # 日志累计行数（标题栏显示，截断时校准）
+        self._ip_tip = None  # 多网卡提示气泡
+        self._ip_tip_timer = None
+        # 两个定时循环（UI 队列轮询 / 统计刷新）的 after-id，
+        # 关闭时统一取消，避免窗口销毁后 after 回调报错
+        self._drain_job = None
+        self._refresh_job = None
 
         # 心跳配置 & 客户端
         self.heartbeat_cfg = HeartbeatConfig()
@@ -934,8 +1113,11 @@ class USB2NetApp:
         # 定时刷新统计
         self._refresh_stats()
 
+        # 启动本机 IP 守护探测（网卡变化自动跟上）
+        self._start_ip_monitor()
+
         # 启动线程安全的 UI 回调轮询（仅主线程执行 tkinter 操作）
-        self.root.after(200, self._drain_ui_queue)
+        self._drain_job = self.root.after(200, self._drain_ui_queue)
 
         # 关闭处理
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -1020,7 +1202,7 @@ class USB2NetApp:
         style.configure(
             "TLabelframe.Label",
             background=COLOR_BG,
-            foreground=COLOR_PRIMARY_DARK,
+            foreground=COLOR_ACCENT,
             font=("Segoe UI", 9, "bold"),
         )
 
@@ -1089,7 +1271,7 @@ class USB2NetApp:
             background=COLOR_CARD,
             fieldbackground=COLOR_CARD,
             foreground=COLOR_TEXT,
-            rowheight=32,
+            rowheight=34,
             font=("Segoe UI", 9),
             selectbackground=COLOR_PRIMARY,
             selectforeground="white",
@@ -1100,57 +1282,179 @@ class USB2NetApp:
             "Treeview.Heading",
             font=("Segoe UI", 9, "bold"),
             background=COLOR_BG,
-            foreground=COLOR_PRIMARY_DARK,
+            foreground=COLOR_ACCENT,
             relief="flat",
             borderwidth=0,
             padding=(0, 6),
         )
         style.map(
             "Treeview.Heading",
-            background=[("active", COLOR_PRIMARY_LIGHT)],
+            background=[("active", COLOR_BORDER)],
+        )
+
+        # Combobox 弹出列表是系统原生控件，ttk style 管不到，需用 option 注册深色
+        for opts in (
+            ("*TCombobox*Listbox.background", COLOR_CARD),
+            ("*TCombobox*Listbox.foreground", COLOR_TEXT),
+            ("*TCombobox*Listbox.selectBackground", COLOR_PRIMARY),
+            ("*TCombobox*Listbox.selectForeground", "#ffffff"),
+            ("*TCombobox*Listbox.font", (FONT, 9)),
+        ):
+            self.root.option_add(*opts)
+
+        # TCheckbutton 默认前景是黑色，深色下不可读
+        style.configure(
+            "TCheckbutton",
+            background=COLOR_BG,
+            foreground=COLOR_TEXT,
+        )
+        style.map(
+            "TCheckbutton",
+            background=[("active", COLOR_BG)],
+            foreground=[("disabled", COLOR_TEXT_MUTED)],
         )
 
         # 状态行 tag：仅活动/异常态上色（运行中绿、等待橙、错误红、其余中性灰）
         self.tree.tag_configure("st_ok", foreground=COLOR_SUCCESS)
-        self.tree.tag_configure(
-            "st_warn", foreground=COLOR_WARNING, font=("Segoe UI", 9, "bold")
-        )
-        self.tree.tag_configure(
-            "st_err", foreground=COLOR_ERROR, font=("Segoe UI", 9, "bold")
-        )
+        self.tree.tag_configure("st_warn", foreground=COLOR_WARNING, font=F_BODY_BOLD)
+        self.tree.tag_configure("st_err", foreground=COLOR_ERROR, font=F_BODY_BOLD)
         self.tree.tag_configure("st_idle", foreground=COLOR_TEXT_SEC)
-        # 交替行背景（与状态 tag 叠加，background 由 row_alt 提供）
+        # 斑马纹与指针悬停：与状态 tag 叠加使用，background 由这两个 tag 提供。
+        # Treeview 里靠后的 tag 优先，因此 hover 必须排在 row_alt 之后才能盖住斑马纹。
         self.tree.tag_configure("row_alt", background=COLOR_ROW_ALT)
+        self.tree.tag_configure("hover", background=COLOR_ROW_HOVER)
 
-    def _make_side_btn(self, parent, icon, text, command):
-        """侧栏导航按钮：深色底、左对齐、hover 高亮。"""
+    def _make_top_btn(self, parent, text, command, kind="ghost"):
+        """顶部横条按钮：深色底浅色字；主操作（启动/停止）用彩色强调。"""
+        palette = {
+            "success": (COLOR_SUCCESS, "#15803d"),
+            "danger": (COLOR_ERROR, "#b91c1c"),
+            "ghost": (COLOR_SIDEBAR_HOVER, "#223052"),
+        }
+        bg, active = palette.get(kind, palette["ghost"])
         btn = tk.Button(
             parent,
-            text=f" {icon}  {text}",
-            bg=COLOR_SIDEBAR,
-            fg=COLOR_SIDEBAR_TEXT,
-            activebackground=COLOR_SIDEBAR_HOVER,
+            text=text,
+            command=command,
+            bg=bg,
+            fg="white" if kind != "ghost" else COLOR_SIDEBAR_TEXT,
+            activebackground=active,
             activeforeground="white",
-            font=("Segoe UI", 10),
+            font=(FONT, 9, "bold"),
             relief="flat",
             bd=0,
-            anchor="w",
-            padx=16,
-            pady=9,
+            padx=10,
+            pady=7,
             cursor="hand2",
-            highlightthickness=0,
-            command=command,
+        )
+        _idle_fg = btn.cget("fg")
+        btn.bind("<Enter>", lambda _e: btn.config(bg=active, fg="white"))
+        btn.bind("<Leave>", lambda _e: btn.config(bg=bg, fg=_idle_fg))
+        return btn
+
+    def _build_topbar(self):
+        """顶部横条：品牌 / 全局操作 / 运行状态 三段式（替代原左侧栏）。
+
+        用 grid 而不是 pack：三段各自固定，中段吃剩余空间，
+        窗口变窄时优先压缩中段而不是把右侧状态挤出可视区。
+        """
+        bar = tk.Frame(self.root, bg=COLOR_SIDEBAR, height=56)
+        self._topbar = bar
+        bar.pack(side="top", fill="x")
+        # 注意：子控件由 grid 管理，必须用 grid_propagate 冻结高度，
+        # pack_propagate 对 grid 子控件不起作用（会导致顶栏被压成一行按钮的高度）。
+        bar.grid_propagate(False)
+        bar.grid_columnconfigure(0, weight=0)
+        bar.grid_columnconfigure(1, weight=1)
+        bar.grid_columnconfigure(2, weight=0)
+
+        # ── 左段：品牌 ──
+        left = tk.Frame(bar, bg=COLOR_SIDEBAR)
+        left.grid(row=0, column=0, sticky="w", padx=(16, 0))
+        if self._header_logo:
+            tk.Label(left, image=self._header_logo, bg=COLOR_SIDEBAR).pack(side="left")
+        tk.Label(
+            left,
+            text="USB2Net",
+            bg=COLOR_SIDEBAR,
+            fg="white",
+            font=(FONT, 14, "bold"),
+        ).pack(side="left", padx=(8, 0))
+        # 版本徽章直接取 APP_VERSION 的后半段，避免两处版本号各写一份而不同步
+        tk.Label(
+            left,
+            text=APP_VERSION.replace("USB2Net", "").strip() or "V3.0",
+            bg=COLOR_SIDEBAR_HOVER,
+            fg=COLOR_SIDEBAR_MUTED,
+            font=(FONT, 7, "bold"),
+            padx=5,
+            pady=2,
+        ).pack(side="left", padx=(7, 0))
+
+        # ── 中段：全局操作 ──
+        ops = tk.Frame(bar, bg=COLOR_SIDEBAR)
+        ops.grid(row=0, column=1, sticky="w", padx=(22, 12))
+        self._btn_start_all = self._make_top_btn(
+            ops, "▶ 启动全部", self._on_start_all, "success"
+        )
+        self._btn_start_all.pack(side="left", padx=(0, 7))
+        self._btn_stop_all = self._make_top_btn(
+            ops, "■ 停止全部", self._on_stop_all, "danger"
+        )
+        self._btn_stop_all.pack(side="left", padx=(0, 14))
+        self._btn_heartbeat = self._make_top_btn(
+            ops, "♥ 心跳", self._on_heartbeat_settings
+        )
+        self._btn_heartbeat.pack(side="left", padx=(0, 7))
+        self._btn_getcmd = self._make_top_btn(ops, "⇧ 上报", self._on_getcmd)
+        self._btn_getcmd.pack(side="left")
+
+        # ── 右段：心跳状态 + 本机 IP（可点击复制）──
+        right = tk.Frame(bar, bg=COLOR_SIDEBAR)
+        right.grid(row=0, column=2, sticky="e", padx=(0, 16))
+
+        self._side_ip = tk.Label(
+            right,
+            text="获取中…",
+            bg=COLOR_SIDEBAR_HOVER,
+            fg=COLOR_SIDEBAR_TEXT,
+            font=(FONT_MONO, 10, "bold"),
+            cursor="hand2",
+            padx=9,
+            pady=5,
+        )
+        self._side_ip.pack(side="right")
+        self._side_ip.bind("<Button-1>", lambda _e: self._copy_ip())
+        self._side_ip.bind("<Enter>", lambda _e: self._on_side_ip_enter())
+        self._side_ip.bind("<Leave>", lambda _e: self._on_side_ip_leave())
+        tk.Label(
+            right,
+            text="🌐",
+            bg=COLOR_SIDEBAR,
+            fg=COLOR_SIDEBAR_MUTED,
+            font=(FONT, 10),
+        ).pack(side="right", padx=(0, 4))
+
+        tk.Frame(right, bg=COLOR_SIDEBAR_HOVER, width=1).pack(
+            side="right", fill="y", padx=10, pady=12
         )
 
-        def on_enter(e):
-            btn.config(bg=COLOR_SIDEBAR_HOVER, fg="white")
-
-        def on_leave(e):
-            btn.config(bg=COLOR_SIDEBAR, fg=COLOR_SIDEBAR_TEXT)
-
-        btn.bind("<Enter>", on_enter)
-        btn.bind("<Leave>", on_leave)
-        return btn
+        self._stat_hb = tk.Label(
+            right,
+            text="心跳：已停止",
+            bg=COLOR_SIDEBAR,
+            fg=COLOR_SIDEBAR_TEXT,
+            font=(FONT, 9),
+        )
+        self._stat_hb.pack(side="right")
+        self._hb_dot = tk.Label(
+            right,
+            text="●",
+            bg=COLOR_SIDEBAR,
+            fg=COLOR_TEXT_MUTED,
+            font=(FONT, 10),
+        )
+        self._hb_dot.pack(side="right", padx=(0, 5))
 
     def _make_primary_btn(self, parent, text, command):
         """内容区主操作按钮：强调蓝实底、hover 加深。"""
@@ -1181,178 +1485,299 @@ class USB2NetApp:
         btn.bind("<Leave>", on_leave)
         return btn
 
+    @staticmethod
+    def _bind_all(widget, sequence, handler):
+        """给 widget 及其所有子控件绑定同一事件（用于整块可点击 / hover）。"""
+        widget.bind(sequence, handler)
+        for child in widget.winfo_children():
+            USB2NetApp._bind_all(child, sequence, handler)
+
+    def _on_side_ip_enter(self):
+        """顶部横条 IP：悬停 0.4s 再浮出全部网卡地址，避免鼠标掠过时闪现。"""
+        self._side_ip.configure(bg=COLOR_PRIMARY, fg="white")
+        self._cancel_ip_tip()
+        self._ip_tip_timer = self.root.after(400, self._show_ip_tip)
+
+    def _on_side_ip_leave(self):
+        self._side_ip.configure(bg=COLOR_SIDEBAR_HOVER, fg=COLOR_SIDEBAR_TEXT)
+        self._cancel_ip_tip()
+        self._hide_ip_tip()
+
+    def _cancel_ip_tip(self):
+        if self._ip_tip_timer:
+            try:
+                self.root.after_cancel(self._ip_tip_timer)
+            except Exception:
+                pass
+            self._ip_tip_timer = None
+
+    def _show_ip_tip(self):
+        """浮出全部网卡 IP（多网卡时才提示，单网卡直接提示可复制）。"""
+        self._ip_tip_timer = None
+        ips = list(self._local_ips)
+        if not ips:
+            return
+        try:
+            self._hide_ip_tip()
+            tip = tk.Toplevel(self.root)
+            tip.overrideredirect(True)
+            tip.configure(
+                bg=COLOR_HEADER, highlightthickness=1, highlightbackground=COLOR_HEADER
+            )
+            tip.attributes("-topmost", True)
+
+            tk.Label(
+                tip,
+                text="全部网卡地址" if len(ips) > 1 else "点击复制此地址",
+                bg=COLOR_HEADER,
+                fg="#94a3b8",
+                font=("Segoe UI", 8),
+                anchor="w",
+                padx=10,
+            ).pack(fill="x", pady=(6, 2))
+
+            for ip in ips:
+                tk.Label(
+                    tip,
+                    text=("  ● " if ip is ips[0] else "  ○ ") + ip,
+                    bg=COLOR_HEADER,
+                    fg="#ffffff" if ip is ips[0] else "#cbd5e1",
+                    font=("Consolas", 10, "bold" if ip is ips[0] else "normal"),
+                    anchor="w",
+                    padx=10,
+                ).pack(fill="x")
+            tk.Label(tip, text="", bg=COLOR_HEADER, font=("Segoe UI", 4)).pack()
+
+            tip.update_idletasks()
+            # 定位到顶栏 IP 正下方（没有顶栏 IP 时退回窗口左上，不至于报错）
+            anchor = getattr(self, "_side_ip", None) or self.root
+            anchor.update_idletasks()
+            x = max(0, anchor.winfo_rootx() - 8)
+            y = anchor.winfo_rooty() + anchor.winfo_height() + 6
+            tip.geometry(f"+{x}+{y}")
+            self._ip_tip = tip
+        except Exception:
+            self._ip_tip = None
+
+    def _hide_ip_tip(self):
+        if self._ip_tip and self._ip_tip.winfo_exists():
+            try:
+                self._ip_tip.destroy()
+            except Exception:
+                pass
+        self._ip_tip = None
+
+    def _update_ip_display(self, ips):
+        """把最新 IP 列表同步到顶部横条与状态栏（主线程执行）。"""
+        ips = list(ips) or ["127.0.0.1"]
+        self._local_ips = ips
+        primary = ips[0]
+        # 各显示点逐一安全更新（某个控件不存在时跳过，不影响其余的）
+        for attr, text in (
+            ("_side_ip", primary),
+            ("_status_ip", f" 本机 IP: {primary}"),
+        ):
+            w = getattr(self, attr, None)
+            if w is not None:
+                try:
+                    w.configure(text=text)
+                except Exception:
+                    pass
+
+    def _copy_ip(self):
+        """复制主 IP 到剪贴板"""
+        ip = (self._local_ips or ["127.0.0.1"])[0]
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(ip)
+            self._show_toast(f"已复制 IP：{ip}")
+        except Exception:
+            self._show_toast("复制失败", is_success=False)
+
+    def _start_ip_monitor(self):
+        """
+        后台守护线程每 5 秒探测一次本机 IP（网卡变化 / 断网重连都能自动跟上）。
+        取 IP 会做 DNS 解析，可能短时阻塞，因此放线程里；
+        结果只在主线程落地，遵守"工作线程不碰 tkinter"的约定。
+        """
+        self._ip_stop = threading.Event()
+
+        def _worker():
+            while not self._ip_stop.is_set():
+                try:
+                    self._call_on_main(self._update_ip_display, _get_all_local_ips())
+                except Exception:
+                    pass
+                if self._ip_stop.wait(5.0):
+                    break
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def _make_stat_card(self, parent, caption, icon, tint, accent):
-        """统计卡片：彩色底 + 大号数字 + 小标题 + 阴影效果"""
-        # 外层容器模拟阴影
-        shadow = tk.Frame(parent, bg="#e0e0e0", relief="flat", bd=0)
-        shadow.pack(side="left", fill="both", expand=True, padx=6, pady=4)
+        """统计卡片：圆角白卡 + 圆形彩色图标底 + 大号数字。"""
+        outer = tk.Frame(parent, bg=COLOR_BG)
+        outer.pack(side="left", fill="x", expand=True, padx=6, pady=0)
 
-        # 内层卡片（偏移制造阴影效果）
-        card = tk.Frame(
-            shadow,
-            bg=tint,
-            relief="flat",
-            bd=0,
-            highlightthickness=1,
-            highlightcolor=COLOR_BORDER,
+        card = RoundedCard(
+            outer,
+            radius=14,
+            fill=COLOR_CARD,
+            padx=14,
+            pady=13,
+            shadow=COLOR_SHADOW,
+            height=84,
         )
-        card.pack(fill="both", expand=True, padx=(0, 2), pady=(0, 2))
+        card.pack(fill="both", expand=True)
+        body = card.body
 
-        head = tk.Frame(card, bg=tint)
-        head.pack(fill="x", padx=14, pady=(10, 0))
-        tk.Label(head, text=icon, bg=tint, fg=accent, font=("Segoe UI", 14)).pack(
-            side="left"
-        )
-        val = tk.Label(
-            card,
-            text="-",
-            bg=tint,
-            fg=accent,
-            font=("Segoe UI", 22, "bold"),
-        )
-        val.pack(anchor="w", padx=14, pady=(2, 0))
+        # 圆形图标底：用小 Canvas 画正圆，比方形色块更精致
+        ic = tk.Canvas(body, width=36, height=36, bg=COLOR_CARD, highlightthickness=0)
+        ic.create_oval(1, 1, 35, 35, fill=tint, outline="")
+        ic.create_text(18, 19, text=icon, fill=accent, font=(FONT, 13))
+        ic.pack(side="left")
+
+        text_col = tk.Frame(body, bg=COLOR_CARD)
+        text_col.pack(side="left", padx=(12, 0))
         tk.Label(
-            card, text=caption, bg=tint, fg=COLOR_TEXT_SEC, font=("Segoe UI", 9)
-        ).pack(anchor="w", padx=14, pady=(0, 10))
+            text_col,
+            text=caption,
+            bg=COLOR_CARD,
+            fg=COLOR_TEXT_SEC,
+            font=F_BODY,
+        ).pack(anchor="w")
+        val = tk.Label(
+            text_col,
+            text="-",
+            bg=COLOR_CARD,
+            fg=COLOR_TEXT,
+            font=F_CARD_NUM,
+        )
+        val.pack(anchor="w")
+
+        # hover 反馈：数字点亮为该卡片的主题色
+        self._bind_all(outer, "<Enter>", lambda _e: val.configure(fg=accent))
+        self._bind_all(outer, "<Leave>", lambda _e: val.configure(fg=COLOR_TEXT))
         return val
 
     def _build_ui(self):
         # 状态栏先占底部（pack 顺序保证横跨整个窗口底部）
-        self.status_bar = tk.Label(
+        # 分三段：左侧动态信息（沿用 self.status_bar 这一 Label，旧代码的
+        # status_bar.config(text=...) 调用无需改动）+ 右侧常驻 IP / 时钟。
+        status_wrap = tk.Frame(
             self.root,
+            bg=COLOR_STATUS_BG,
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
+        )
+        status_wrap.pack(fill="x", side="bottom")
+
+        self._status_time = tk.Label(
+            status_wrap,
+            text="",
+            bg=COLOR_STATUS_BG,
+            fg=COLOR_TEXT_SEC,
+            anchor="e",
+            font=("Segoe UI", 9),
+            padx=12,
+            pady=4,
+        )
+        self._status_time.pack(side="right")
+
+        tk.Frame(status_wrap, bg=COLOR_BORDER, width=1).pack(side="right", fill="y")
+
+        self._status_ip = tk.Label(
+            status_wrap,
+            text=" 本机 IP: 获取中…",
+            bg=COLOR_STATUS_BG,
+            fg=COLOR_TEXT_SEC,
+            anchor="e",
+            font=("Segoe UI", 9, "bold"),
+            padx=12,
+            pady=4,
+            cursor="hand2",
+        )
+        self._status_ip.pack(side="right")
+        self._status_ip.bind("<Button-1>", lambda _e: self._copy_ip())
+
+        # 整体状态灯：有串口在跑就亮绿，全停则转灰
+        self._status_dot = tk.Label(
+            status_wrap,
+            text="●",
+            bg=COLOR_STATUS_BG,
+            fg=COLOR_TEXT_MUTED,
+            font=(FONT, 9),
+            padx=10,
+            pady=4,
+        )
+        self._status_dot.pack(side="left")
+
+        self.status_bar = tk.Label(
+            status_wrap,
             text=" 就绪",
             bg=COLOR_STATUS_BG,
             fg=COLOR_TEXT_SEC,
             anchor="w",
-            font=("Segoe UI", 9),
-            padx=10,
+            font=F_BODY,
             pady=4,
         )
-        self.status_bar.pack(fill="x", side="bottom")
+        self.status_bar.pack(side="left", fill="x", expand=True)
 
-        # ── 主容器：左侧深色导航栏 + 右侧浅色内容区 ──
-        main_wrap = tk.Frame(self.root, bg=COLOR_BG)
-        main_wrap.pack(fill="both", expand=True)
-
-        # ═══ 侧栏 ═══
-        sidebar = tk.Frame(main_wrap, bg=COLOR_SIDEBAR, width=190)
-        sidebar.pack(side="left", fill="y")
-        sidebar.pack_propagate(False)
-
-        # logo
-        logo_row = tk.Frame(sidebar, bg=COLOR_SIDEBAR)
-        logo_row.pack(fill="x", padx=16, pady=(18, 4))
-        if self._header_logo:
-            tk.Label(logo_row, image=self._header_logo, bg=COLOR_SIDEBAR).pack(
-                side="left"
-            )
-        tk.Label(
-            logo_row,
-            text="USB2Net",
-            bg=COLOR_SIDEBAR,
-            fg="white",
-            font=("Segoe UI", 14, "bold"),
-        ).pack(side="left", padx=6)
-        tk.Label(
-            sidebar,
-            text="网络串口服务器",
-            bg=COLOR_SIDEBAR,
-            fg=COLOR_SIDEBAR_MUTED,
-            font=("Segoe UI", 8),
-        ).pack(anchor="w", padx=18)
-
-        # 分组：串口操作
-        tk.Label(
-            sidebar,
-            text="串口操作",
-            bg=COLOR_SIDEBAR,
-            fg=COLOR_SIDEBAR_MUTED,
-            font=("Segoe UI", 8, "bold"),
-        ).pack(anchor="w", padx=18, pady=(16, 2))
-        self._btn_start_all = self._make_side_btn(
-            sidebar, "▶", "全部启动", self._on_start_all
-        )
-        self._btn_start_all.pack(fill="x")
-        self._btn_stop_all = self._make_side_btn(
-            sidebar, "■", "全部停止", self._on_stop_all
-        )
-        self._btn_stop_all.pack(fill="x")
-
-        # 分组：管理服务器
-        tk.Label(
-            sidebar,
-            text="管理服务器",
-            bg=COLOR_SIDEBAR,
-            fg=COLOR_SIDEBAR_MUTED,
-            font=("Segoe UI", 8, "bold"),
-        ).pack(anchor="w", padx=18, pady=(14, 2))
-        self._btn_heartbeat = self._make_side_btn(
-            sidebar, "♥", "心跳设置", self._on_heartbeat_settings
-        )
-        self._btn_heartbeat.pack(fill="x")
-        self._btn_getcmd = self._make_side_btn(sidebar, "⇧", "IP上报", self._on_getcmd)
-        self._btn_getcmd.pack(fill="x")
-
-        # 弹性占位，把心跳状态推到底部
-        tk.Frame(sidebar, bg=COLOR_SIDEBAR).pack(fill="both", expand=True)
-
-        # 心跳状态指示（底部）
-        hb_card = tk.Frame(sidebar, bg=COLOR_SIDEBAR_HOVER)
-        hb_card.pack(fill="x", padx=10, pady=(0, 6))
-        self._hb_dot = tk.Label(
-            hb_card,
-            text="●",
-            bg=COLOR_SIDEBAR_HOVER,
-            fg=COLOR_TEXT_MUTED,
-            font=("Segoe UI", 10),
-        )
-        self._hb_dot.pack(side="left", padx=(10, 4), pady=8)
-        self._stat_hb = tk.Label(
-            hb_card,
-            text="心跳：已停止",
-            bg=COLOR_SIDEBAR_HOVER,
-            fg=COLOR_SIDEBAR_TEXT,
-            font=("Segoe UI", 9),
-        )
-        self._stat_hb.pack(side="left")
-
-        tk.Label(
-            sidebar,
-            text=APP_VERSION,
-            bg=COLOR_SIDEBAR,
-            fg=COLOR_SIDEBAR_MUTED,
-            font=("Segoe UI", 8),
-        ).pack(side="bottom", pady=(0, 10))
+        # ═══ 顶部横条：品牌 + 全局操作 + 状态（替代原左侧栏）═══
+        self._build_topbar()
 
         # ═══ 内容区 ═══
-        content = tk.Frame(main_wrap, bg=COLOR_BG)
-        content.pack(side="left", fill="both", expand=True)
+        content = tk.Frame(self.root, bg=COLOR_BG)
+        content.pack(fill="both", expand=True)
 
-        # ── 页头：标题 + 主操作按钮 ──
-        page_head = tk.Frame(content, bg=COLOR_BG)
-        page_head.pack(fill="x", padx=18, pady=(14, 2))
-        title_col = tk.Frame(page_head, bg=COLOR_BG)
-        title_col.pack(side="left")
+        # ── 页头条（圆角 + 投影）：单行「图标 + 标题 + 说明 + 主 CTA」──
+        # 单行而不是上下两行：默认 1000x680 下纵向很紧，省下的高度留给串口列表。
+        # IP 由顶部横条全局显示，这里不再重复。
+        page_head = RoundedCard(
+            content,
+            radius=18,
+            fill=COLOR_CARD,
+            padx=18,
+            pady=12,
+            shadow=COLOR_SHADOW,
+            height=60,
+        )
+        page_head.pack(fill="x", padx=18, pady=(14, 0))
+
+        head_inner = page_head.body
+
+        # 左侧：品牌色图标 + 标题 + 说明
+        title_row = tk.Frame(head_inner, bg=COLOR_CARD)
+        title_row.pack(side="left", fill="y")
         tk.Label(
-            title_col,
+            title_row,
+            text="⇄",
+            bg=COLOR_CARD,
+            fg=COLOR_PRIMARY,
+            font=(FONT, 18, "bold"),
+        ).pack(side="left", padx=(0, 11))
+        tk.Label(
+            title_row,
             text="串口管理",
-            bg=COLOR_BG,
+            bg=COLOR_CARD,
             fg=COLOR_TEXT,
-            font=("Segoe UI", 18, "bold"),
-        ).pack(anchor="w")
+            font=(FONT, 15, "bold"),
+        ).pack(side="left")
         tk.Label(
-            title_col,
+            title_row,
             text="USB / 串口设备通过 TCP 暴露到网络",
-            bg=COLOR_BG,
-            fg=COLOR_TEXT_SEC,
-            font=("Segoe UI", 9),
-        ).pack(anchor="w")
-        self._btn_add = self._make_primary_btn(page_head, "＋ 添加串口", self._on_add)
-        self._btn_add.pack(side="right", pady=(4, 0))
+            bg=COLOR_CARD,
+            fg=COLOR_TEXT_MUTED,
+            font=F_SMALL,
+        ).pack(side="left", padx=(10, 0), pady=(3, 0))
+
+        # 右侧：主 CTA
+        self._btn_add = self._make_primary_btn(head_inner, "＋ 添加串口", self._on_add)
+        self._btn_add.pack(side="right")
 
         # ── 统计卡片行 ──
+        # padx 13 + 卡片自身 padx 5 = 18，与页头分隔线左右对齐
         stats_row = tk.Frame(content, bg=COLOR_BG)
-        stats_row.pack(fill="x", padx=14, pady=(8, 2))
+        stats_row.pack(fill="x", padx=13, pady=(10, 2))
         self._stat_total = self._make_stat_card(
             stats_row, "串口总数", "▤", COLOR_TINT_BLUE, COLOR_PRIMARY
         )
@@ -1366,13 +1791,89 @@ class USB2NetApp:
             stats_row, "TCP 客户端", "◉", COLOR_TINT_PURPLE, "#9333ea"
         )
 
-        # ── 串口列表区 ──
-        list_frame = tk.Frame(content, bg=COLOR_BG)
-        list_frame.pack(fill="both", expand=True, padx=18, pady=(4, 0))
+        # ── 串口列表区 + 日志区共用 grid 容器 ──
+        # 用 grid 而不是 pack：grid 的 row weight + minsize 能给日志保底高度；
+        # pack 在窗口高度紧张时会把后声明的区块压成 0 高（默认 1000x680 正好触发）。
+        self._list_body = tk.Frame(content, bg=COLOR_BG)
+        self._list_body.pack(fill="both", expand=True)
+        self._list_body.grid_columnconfigure(0, weight=1)
+        # row0 列表区吃大头（weight 5 : 1），row1 操作按钮行固定，
+        # row2 日志区只留保底高度 —— 串口列表才是主内容，日志是辅助面板。
+        self._list_body.grid_rowconfigure(0, weight=5)
+        self._list_body.grid_rowconfigure(2, weight=1, minsize=130)
 
-        # Treeview（白卡片 + 细边框）
-        tree_frame = tk.Frame(list_frame, bg=COLOR_BORDER, bd=1)
-        tree_frame.pack(fill="both", expand=True)
+        list_frame = tk.Frame(self._list_body, bg=COLOR_BG)
+        list_frame.grid(row=0, column=0, sticky="nsew", padx=18, pady=(6, 0))
+
+        # 区块标题：左侧名称 + 操作提示，右侧实时路数
+        list_head = tk.Frame(list_frame, bg=COLOR_BG)
+        list_head.pack(fill="x", pady=(0, 6))
+        tk.Label(
+            list_head,
+            text="串口列表",
+            bg=COLOR_BG,
+            fg=COLOR_TEXT,
+            font=("Segoe UI", 11, "bold"),
+        ).pack(side="left")
+        tk.Label(
+            list_head,
+            text="双击行编辑 · 右键更多操作",
+            bg=COLOR_BG,
+            fg=COLOR_TEXT_MUTED,
+            font=("Segoe UI", 8),
+        ).pack(side="left", padx=(10, 2))
+        self._list_count = tk.Label(
+            list_head,
+            text="共 0 路",
+            bg=COLOR_BG,
+            fg=COLOR_TEXT_SEC,
+            font=("Segoe UI", 9),
+        )
+        self._list_count.pack(side="right", padx=(10, 0))
+
+        # 波特率实时调整放在列表头右侧（选中串口后，下拉选值并点"应用"即实时切换）。
+        # 放这里而不是操作按钮行，是因为按钮行 + 波特率在默认 1000px 窗口下放不下会溢出。
+        baud_frame = tk.Frame(list_head, bg=COLOR_BG)
+        baud_frame.pack(side="right")
+        tk.Label(
+            baud_frame,
+            text="波特率",
+            bg=COLOR_BG,
+            fg=COLOR_TEXT_SEC,
+            font=("Segoe UI", 9, "bold"),
+        ).pack(side="left", padx=(4, 2))
+        self._baud_combo = ttk.Combobox(
+            baud_frame,
+            width=9,
+            state="normal",
+            justify="center",
+            values=(
+                "9600",
+                "19200",
+                "38400",
+                "57600",
+                "115200",
+                "230400",
+                "460800",
+                "921600",
+                "1500000",
+            ),
+        )
+        self._baud_combo.pack(side="left", padx=2)
+        ttk.Button(
+            baud_frame,
+            text="应用",
+            style="Primary.TButton",
+            command=self._on_apply_baud,
+        ).pack(side="left", padx=2)
+
+        # Treeview 装进圆角卡片
+        tree_card = RoundedCard(
+            list_frame, radius=14, fill=COLOR_CARD, padx=4, pady=4, shadow=COLOR_SHADOW
+        )
+        tree_card.pack(fill="both", expand=True)
+        tree_frame = tree_card.body
+        tree_frame.configure(bg=COLOR_CARD)
 
         columns = (
             "name",
@@ -1386,23 +1887,33 @@ class USB2NetApp:
             "tx_bytes",
             "uptime",
         )
-        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=8)
+        # 高度 7 行：保证默认 1000x680 窗口下日志面板仍有立足之地
+        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=7)
 
+        # 列宽按默认窗口（1000px）预算，总和 ~725px：
+        # 1000 - 侧栏 196 - 内容左右边距 36 - 竖滚动条 ≈ 750，刚好放下不溢出
         col_config = [
-            ("name", "名称", 100, "center"),
-            ("serial", "串口", 110, "center"),
-            ("baudrate", "波特率", 80, "center"),
-            ("tcp_port", "TCP端口", 70, "center"),
-            ("web", "Web端口", 70, "center"),
-            ("state", "状态", 100, "center"),
-            ("clients", "客户端数", 70, "center"),
-            ("rx_bytes", "串口→TCP", 90, "center"),
-            ("tx_bytes", "TCP→串口", 90, "center"),
-            ("uptime", "运行时间", 80, "center"),
+            ("name", "名称", 92, "center"),
+            ("serial", "串口", 86, "center"),
+            ("baudrate", "波特率", 68, "center"),
+            ("tcp_port", "TCP端口", 64, "center"),
+            ("web", "Web端口", 64, "center"),
+            ("state", "状态", 86, "center"),
+            ("clients", "客户端数", 62, "center"),
+            ("rx_bytes", "串口→TCP", 78, "center"),
+            ("tx_bytes", "TCP→串口", 78, "center"),
+            ("uptime", "运行时间", 72, "center"),
         ]
         for cid, text, width, anchor in col_config:
             self.tree.heading(cid, text=text)
+            # 列宽可拉伸以填满窗口；minwidth 保证不被挤扁，真挤不下时走底部横向滚动条
             self.tree.column(cid, width=width, anchor=anchor, minwidth=width)
+
+        # 横向滚动条要先于竖向 pack，才能占满底部一整条
+        x_scroll = ttk.Scrollbar(
+            tree_frame, orient="horizontal", command=self.tree.xview
+        )
+        x_scroll.pack(side="bottom", fill="x")
 
         self.tree.pack(side="left", fill="both", expand=True)
 
@@ -1410,10 +1921,19 @@ class USB2NetApp:
             tree_frame, orient="vertical", command=self.tree.yview
         )
         scrollbar.pack(side="right", fill="y")
-        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.configure(yscrollcommand=scrollbar.set, xscrollcommand=x_scroll.set)
 
-        # 右键菜单
-        self._ctx_menu = tk.Menu(self.root, tearoff=0)
+        # 右键菜单（深色）
+        self._ctx_menu = tk.Menu(
+            self.root,
+            tearoff=0,
+            bg=COLOR_CARD,
+            fg=COLOR_TEXT,
+            activebackground=COLOR_PRIMARY,
+            activeforeground="#ffffff",
+            bd=0,
+            relief="flat",
+        )
         self._ctx_menu.add_command(label="启动", command=self._ctx_start)
         self._ctx_menu.add_command(label="停止", command=self._ctx_stop)
         self._ctx_menu.add_command(label="Web 终端", command=self._ctx_web_term)
@@ -1424,10 +1944,37 @@ class USB2NetApp:
         self.tree.bind("<Button-3>", self._on_right_click)
         self.tree.bind("<Double-1>", lambda e: self._ctx_edit())
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+        self.tree.bind("<Motion>", self._on_tree_motion)
+        self.tree.bind("<Leave>", self._on_tree_leave)
 
-        # 操作按钮行
-        op_frame = tk.Frame(list_frame, bg=COLOR_BG)
-        op_frame.pack(fill="x", pady=6)
+        # 空状态覆盖层：用 place 浮在 tree 之上，不写入 tree 数据，
+        # 因此完全不影响 _bridge_rows / _refresh_stats 的下标逻辑。
+        self._empty_hint = tk.Frame(tree_frame, bg=COLOR_CARD)
+        tk.Label(
+            self._empty_hint,
+            text="🔌",
+            bg=COLOR_CARD,
+            fg=COLOR_BORDER,
+            font=(FONT, 26),
+        ).pack()
+        tk.Label(
+            self._empty_hint,
+            text="还没有串口配置",
+            bg=COLOR_CARD,
+            fg=COLOR_TEXT_SEC,
+            font=(FONT, 11, "bold"),
+        ).pack(pady=(10, 0))
+        tk.Label(
+            self._empty_hint,
+            text="点击右上角「＋ 添加串口」创建第一条通道",
+            bg=COLOR_CARD,
+            fg=COLOR_TEXT_MUTED,
+            font=F_BODY,
+        ).pack(pady=(3, 0))
+
+        # 操作按钮行：独立成 grid 的保底行（row1），窗口再挤也不会被压没
+        op_frame = tk.Frame(self._list_body, bg=COLOR_BG)
+        op_frame.grid(row=1, column=0, sticky="ew", padx=18, pady=6)
 
         # 使用tk.Button实现联动控制（ttk.Button禁用状态样式不好控制）
         self._btn_start = tk.Button(
@@ -1470,6 +2017,12 @@ class USB2NetApp:
             command=self._ctx_web_term,
             style="Primary.TButton",
         ).pack(side="left", padx=3)
+
+        # 语义分组：左边管运行，右边管配置，中间用竖线隔开
+        tk.Frame(op_frame, bg=COLOR_BORDER, width=1).pack(
+            side="left", fill="y", padx=8, pady=4
+        )
+
         ttk.Button(
             op_frame, text="✎ 编辑", command=self._ctx_edit, style="Ghost.TButton"
         ).pack(side="left", padx=3)
@@ -1483,75 +2036,63 @@ class USB2NetApp:
             style="Ghost.TButton",
         ).pack(side="left", padx=3)
 
-        # 波特率实时调整（选中串口后，下拉选值并点"应用"即实时切换串口波特率）
-        baud_frame = tk.Frame(op_frame, bg=COLOR_BG)
-        baud_frame.pack(side="right", padx=8)
-        tk.Label(
-            baud_frame,
-            text="波特率",
-            bg=COLOR_BG,
-            fg=COLOR_TEXT_SEC,
-            font=("Segoe UI", 9, "bold"),
-        ).pack(side="left", padx=(4, 2))
-        self._baud_combo = ttk.Combobox(
-            baud_frame,
-            width=9,
-            state="normal",
-            justify="center",
-            values=(
-                "9600",
-                "19200",
-                "38400",
-                "57600",
-                "115200",
-                "230400",
-                "460800",
-                "921600",
-            ),
-        )
-        self._baud_combo.pack(side="left", padx=2)
-        ttk.Button(
-            baud_frame,
-            text="应用",
-            style="Primary.TButton",
-            command=self._on_apply_baud,
-        ).pack(side="left", padx=2)
-
         # ── 日志面板（可折叠卡片式深色终端） ──
-        log_wrapper = tk.Frame(content, bg=COLOR_BG)
-        log_wrapper.pack(fill="both", expand=True, padx=18, pady=(2, 8))
+        self._log_wrapper = tk.Frame(self._list_body, bg=COLOR_BG)
+        self._log_wrapper.grid(row=2, column=0, sticky="nsew", padx=18, pady=(2, 10))
 
-        # 日志面板标题栏（可点击折叠）
-        log_header = tk.Frame(log_wrapper, bg=COLOR_BG)
+        # 整块做成一张圆角卡片：标题栏常驻，正文可折叠
+        log_card = RoundedCard(
+            self._log_wrapper, radius=14, fill=COLOR_CARD, padx=5, pady=5,
+            shadow=COLOR_SHADOW,
+        )
+        log_card.pack(fill="both", expand=True)
+
+        # 标题栏：左侧折叠开关，右侧工具（工具常驻，折叠后仍可切 HEX / 清空）
+        log_header = tk.Frame(log_card.body, bg=COLOR_CARD)
         log_header.pack(fill="x")
+
         self._btn_toggle_log = tk.Button(
             log_header,
             text="▼ 运行日志",
-            bg=COLOR_BG,
-            fg=COLOR_TEXT_SEC,
+            bg=COLOR_CARD,
+            fg=COLOR_TEXT,
+            activebackground=COLOR_BORDER_LIGHT,
+            activeforeground=COLOR_TEXT,
             relief="flat",
             cursor="hand2",
             font=("Segoe UI", 9, "bold"),
+            padx=10,
+            pady=6,
             command=self._toggle_log_panel,
         )
         self._btn_toggle_log.pack(side="left")
 
-        # 日志面板主体（可折叠）
-        self._log_frame = tk.Frame(log_wrapper, bg=COLOR_CARD, bd=1, relief="solid")
-        self._log_frame.pack(fill="both", expand=True, pady=(2, 0))
-
-        # 日志工具栏
-        log_toolbar = tk.Frame(self._log_frame, bg=COLOR_CARD)
-        log_toolbar.pack(fill="x", pady=(6, 2), padx=8)
-
-        self._hex_var = tk.BooleanVar()
-        tk.Checkbutton(
-            log_toolbar,
-            text="HEX 显示",
-            variable=self._hex_var,
+        # 日志条数（每秒由 _refresh_stats 同步，不跟着每条日志刷新）
+        self._log_count = tk.Label(
+            log_header,
+            text="0 行",
             bg=COLOR_CARD,
-            command=self._toggle_hex,
-        ).pack(side="left", padx=4)
+            fg=COLOR_TEXT_MUTED,
+            font=(FONT, 8),
+        )
+        self._log_count.pack(side="left", padx=(10, 0))
+
+        # 日志工具栏（右对齐，pack 顺序反向）
+        log_toolbar = tk.Frame(log_header, bg=COLOR_CARD)
+        log_toolbar.pack(side="right", padx=8)
+
+        tk.Button(
+            log_toolbar,
+            text="清空日志",
+            bg=COLOR_CARD,
+            fg=COLOR_TEXT_SEC,
+            activebackground=COLOR_BORDER_LIGHT,
+            activeforeground=COLOR_TEXT,
+            relief="flat",
+            cursor="hand2",
+            padx=8,
+            command=self._clear_log,
+        ).pack(side="right", padx=(4, 0))
 
         self._autoscroll_var = tk.BooleanVar(value=True)
         tk.Checkbutton(
@@ -1559,19 +2100,29 @@ class USB2NetApp:
             text="自动滚动",
             variable=self._autoscroll_var,
             bg=COLOR_CARD,
+            fg=COLOR_TEXT_SEC,
+            activebackground=COLOR_CARD,
+            activeforeground=COLOR_TEXT,
+            selectcolor=COLOR_BG,
             command=self._toggle_autoscroll,
-        ).pack(side="left", padx=4)
+        ).pack(side="right", padx=4)
 
-        tk.Button(
+        self._hex_var = tk.BooleanVar()
+        tk.Checkbutton(
             log_toolbar,
-            text="清空日志",
+            text="HEX 显示",
+            variable=self._hex_var,
             bg=COLOR_CARD,
             fg=COLOR_TEXT_SEC,
-            relief="flat",
-            cursor="hand2",
-            padx=8,
-            command=self._clear_log,
-        ).pack(side="left", padx=4)
+            activebackground=COLOR_CARD,
+            activeforeground=COLOR_TEXT,
+            selectcolor=COLOR_BG,
+            command=self._toggle_hex,
+        ).pack(side="right", padx=4)
+
+        # 日志面板主体（可折叠）
+        self._log_frame = tk.Frame(log_card.body, bg=COLOR_CARD)
+        self._log_frame.pack(fill="both", expand=True)
 
         # ── 日志文本框容器（使用 grid 布局） ──
         log_text_container = tk.Frame(self._log_frame, bg=COLOR_BORDER)
@@ -1592,7 +2143,7 @@ class USB2NetApp:
         self.log_text = tk.Text(
             log_text_top,
             wrap="none",  # 不换行，让水平滚动条起作用
-            font=("Consolas", 9),
+            font=(FONT_MONO, 9),
             bg=COLOR_LOG_BG,
             fg=COLOR_LOG_FG,
             insertbackground="white",
@@ -1600,6 +2151,9 @@ class USB2NetApp:
             relief="flat",
             padx=6,
             pady=4,
+            # 默认 4 行：日志是辅助面板，高度让给串口列表；
+            # 底部有 minsize=130 保底，折叠/展开也不会压没。
+            height=4,
         )
         self.log_text.grid(row=0, column=0, sticky="nsew")
 
@@ -1633,13 +2187,21 @@ class USB2NetApp:
     # ── 新增功能：日志折叠 ──
 
     def _toggle_log_panel(self):
-        """折叠/展开日志面板"""
+        """
+        折叠/展开日志面板。
+        折叠时把日志行的高度权重一并交还列表区，列表才能真正变大。
+        """
         if self._log_expanded:
+            # 只收正文，wrapper（含标题栏/折叠开关/工具栏）保留，否则没法再展开；
+            # 折叠时把日志行的高度权重收回，但 minsize 保住标题栏高度，让开关可见。
             self._log_frame.pack_forget()
+            self._list_body.grid_rowconfigure(2, weight=0, minsize=46)
             self._log_expanded = False
             self._btn_toggle_log.config(text="▶ 运行日志")
         else:
-            self._log_frame.pack(fill="both", expand=True, pady=(2, 0))
+            # 与 _build_ui 里的初始权重保持一致（5:1，日志保底 130）
+            self._list_body.grid_rowconfigure(2, weight=1, minsize=130)
+            self._log_frame.pack(fill="both", expand=True)
             self._log_expanded = True
             self._btn_toggle_log.config(text="▼ 运行日志")
 
@@ -1941,6 +2503,11 @@ class USB2NetApp:
             iid = self._bridge_rows.pop(bid, None)
             if iid:
                 self.tree.delete(iid)
+                self._row_base_tags.pop(iid, None)
+                if self._hover_row == iid:
+                    self._hover_row = None
+            self._recalc_row_stripes()
+            self._update_empty_state()
             self._on_log("info", f"已删除串口: {name}")
             self._save_config()
             self._show_toast(f"已删除: {name}")
@@ -1965,9 +2532,68 @@ class USB2NetApp:
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
+        self._log_lines = 0
         self._show_toast("日志已清空")
 
     # ── Treeview 操作 ──
+
+    # 行标签由「状态色 + 斑马纹 + hover」三部分叠加而成，统一经 _apply_row_tags
+    # 落地。各处不要直接 tree.item(tags=...)，否则会互相覆盖。
+    STATE_TAGS = ("st_ok", "st_warn", "st_err", "st_idle")
+
+    def _apply_row_tags(self, iid):
+        """把该行的基础 tag 与当前 hover 状态合并后写回 tree。"""
+        tags = list(self._row_base_tags.get(iid, ()))
+        if self._hover_row == iid:
+            tags.append("hover")
+        try:
+            self.tree.item(iid, tags=tuple(tags))
+        except Exception:
+            pass  # 行可能刚被删除
+
+    def _set_row_state_tag(self, iid, tag):
+        """更新某行的状态色标签，保留斑马纹与 hover。"""
+        base = tuple(
+            t for t in self._row_base_tags.get(iid, ()) if t not in self.STATE_TAGS
+        )
+        self._row_base_tags[iid] = ((tag,) + base) if tag else base
+        self._apply_row_tags(iid)
+
+    def _recalc_row_stripes(self):
+        """按当前行顺序重算斑马纹（增删行后调用，保证条纹连续）。"""
+        for idx, iid in enumerate(self.tree.get_children()):
+            base = tuple(t for t in self._row_base_tags.get(iid, ()) if t != "row_alt")
+            if idx % 2:
+                base = base + ("row_alt",)
+            self._row_base_tags[iid] = base
+            self._apply_row_tags(iid)
+
+    def _on_tree_motion(self, event):
+        """指针悬停行高亮"""
+        row = self.tree.identify_row(event.y)
+        if row == self._hover_row:
+            return
+        old, self._hover_row = self._hover_row, row
+        if old and self.tree.exists(old):
+            self._apply_row_tags(old)
+        if row:
+            self._apply_row_tags(row)
+
+    def _on_tree_leave(self, _event):
+        """指针移出表格时清掉高亮"""
+        old, self._hover_row = self._hover_row, None
+        if old and self.tree.exists(old):
+            self._apply_row_tags(old)
+
+    def _update_empty_state(self):
+        """没有串口时显示空状态提示（只在状态翻转时改动，避免每帧重排）。"""
+        has_rows = bool(self.tree.get_children())
+        if has_rows and self._empty_shown:
+            self._empty_hint.place_forget()
+            self._empty_shown = False
+        elif not has_rows and not self._empty_shown:
+            self._empty_hint.place(relx=0.5, rely=0.5, anchor="center")
+            self._empty_shown = True
 
     def _add_tree_row(self, bridge_id: int, config: BridgeConfig):
         web_disp = str(config.web_port) if config.web_port else "-"
@@ -1988,6 +2614,9 @@ class USB2NetApp:
             ),
         )
         self._bridge_rows[bridge_id] = iid
+        self._row_base_tags[iid] = ("st_idle",)
+        self._recalc_row_stripes()
+        self._update_empty_state()
 
     def _update_tree_row(self, bridge_id: int, config: BridgeConfig):
         iid = self._bridge_rows.get(bridge_id)
@@ -2105,7 +2734,7 @@ class USB2NetApp:
         except queue.Empty:
             pass
         if self._ui_running:
-            self.root.after(200, self._drain_ui_queue)
+            self._drain_job = self.root.after(200, self._drain_ui_queue)
 
     # ── 日志写入 ──
 
@@ -2118,16 +2747,20 @@ class USB2NetApp:
             "end", f"{msg}\n", level if level in ("info", "warn", "error") else "system"
         )
         self.log_text.configure(state="disabled")
+        # 计数走累加：text 为空时 index("end-1c") 会返回 1 而不是 0，
+        # 用它反推行数会有 off-by-one，不如直接累加可靠。
+        self._log_lines += 1
 
         if self._auto_scroll:
             self.log_text.see("end")
 
-        # 限制日志行数
+        # 限制日志行数（沿用原有裁剪逻辑）
         lines = int(self.log_text.index("end-1c").split(".")[0])
         if lines > 2000:
             self.log_text.configure(state="normal")
             self.log_text.delete("1.0", f"{lines - 2000}.0")
             self.log_text.configure(state="disabled")
+            self._log_lines = min(self._log_lines, 2000)
 
     def _append_data_log(self, tag, name, arrow, label, text, data_len):
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -2138,27 +2771,31 @@ class USB2NetApp:
         self.log_text.insert("end", f"[{label}] ", "system")
         self.log_text.insert("end", f"{text}\n", tag)
         self.log_text.configure(state="disabled")
+        self._log_lines += 1
 
         if self._auto_scroll:
             self.log_text.see("end")
 
     def _update_bridge_state(self, bridge_id: int, state: BridgeState):
         iid = self._bridge_rows.get(bridge_id)
-        if not iid:
+        if not iid or not self.tree.exists(iid):
             return
-        _color, text = STATE_STYLE.get(state, ("#9e9e9e", str(state)))
+        _color, text = STATE_STYLE.get(state, ("#6e7681", str(state)))
         values = list(self.tree.item(iid, "values"))
         values[5] = text
         # 仅对活动/异常态上色（运行中绿、等待橙、错误红、其余中性灰），
-        # 让正常行保持清爽、异常行一目了然，视觉层级更克制高级
+        # 让正常行保持清爽、异常行一目了然，视觉层级更克制高级。
+        # 走 _set_row_state_tag 而不是直接 item(tags=...)，才能保留斑马纹与 hover。
         if state == BridgeState.ERROR:
-            self.tree.item(iid, values=values, tags=("st_err",))
+            state_tag = "st_err"
         elif state == BridgeState.WAITING:
-            self.tree.item(iid, values=values, tags=("st_warn",))
+            state_tag = "st_warn"
         elif state == BridgeState.RUNNING:
-            self.tree.item(iid, values=values, tags=("st_ok",))
+            state_tag = "st_ok"
         else:
-            self.tree.item(iid, values=values, tags=("st_idle",))
+            state_tag = "st_idle"
+        self.tree.item(iid, values=values)
+        self._set_row_state_tag(iid, state_tag)
 
         # 如果选中的是这个串口，更新按钮状态
         if self._get_selected_bridge_id() == bridge_id:
@@ -2181,11 +2818,14 @@ class USB2NetApp:
     # ── 统计刷新 ──
 
     def _refresh_stats(self):
-        """每秒刷新统计数据"""
+        """每秒刷新统计数据。窗口已销毁时直接退出，避免 after 回调报错。"""
+        if not self._ui_running or not self.root.winfo_exists():
+            return
         stats = self.manager.get_all_stats()
         for bid, stat in stats.items():
             iid = self._bridge_rows.get(bid)
-            if iid:
+            # 行可能已被删除（删除串口与刷新/状态回调撞在一起），先确认存在再读写
+            if iid and self.tree.exists(iid):
                 values = list(self.tree.item(iid, "values"))
                 values[6] = stat["client_count"]
                 values[7] = self._fmt_bytes(stat["bytes_serial_to_tcp"])
@@ -2205,18 +2845,24 @@ class USB2NetApp:
         self._stat_running.config(text=str(running))
         self._stat_traffic.config(text=self._fmt_bytes(traffic))
         self._stat_clients.config(text=str(clients))
+        self._list_count.config(text=f"共 {total_bridges} 路")
+        self._update_empty_state()
         self._update_hb_display(hb)
 
-        # 状态栏
+        # 状态栏：左段放动态概览，IP 与时钟由右段常驻显示（不会被选中行覆盖）
         self.status_bar.config(
-            text=f" 串口总数: {total_bridges}  |  运行中: {running}  |  "
-            f"心跳: {hb}  |  {datetime.now().strftime('%H:%M:%S')}"
+            text=f" 串口总数: {total_bridges}  |  运行中: {running}  |  心跳: {hb}"
         )
+        self._status_dot.config(fg=COLOR_SUCCESS if running else COLOR_TEXT_MUTED)
+        self._status_time.config(text=datetime.now().strftime("%H:%M:%S"))
+        self._log_count.config(text=f"{self._log_lines} 行")
 
-        self.root.after(1000, self._refresh_stats)
+        # 仍在运行才排下一轮；窗口销毁后不再续排，避免 after 回调报错
+        if self._ui_running:
+            self._refresh_job = self.root.after(1000, self._refresh_stats)
 
     def _update_hb_display(self, state: str):
-        """更新侧栏底部心跳状态指示灯（文字 + 圆点颜色）。"""
+        """更新顶部横条右侧心跳状态指示灯（文字 + 圆点颜色）。"""
         text = str(state)
         self._stat_hb.config(text=f"心跳：{text}")
         if text == "运行中":
@@ -2346,7 +2992,21 @@ class USB2NetApp:
     def _on_close(self):
         if messagebox.askyesno("退出确认", "确定要退出吗？所有活动的串口将被停止。"):
             self._ui_running = False
+            # 停掉 IP 探测线程并收掉可能浮着的提示气泡
+            self._cancel_ip_tip()
+            self._hide_ip_tip()
+            _ip_stop = getattr(self, "_ip_stop", None)
+            if _ip_stop:
+                _ip_stop.set()
             self._on_log("system", "正在停止所有串口、心跳与 Web 终端并退出...")
+            # 先取消两个定时循环，避免窗口销毁后 after 回调报 "invalid command name"
+            for job in ("_drain_job", "_refresh_job"):
+                jid = getattr(self, job, None)
+                if jid:
+                    try:
+                        self.root.after_cancel(jid)
+                    except Exception:
+                        pass
             self.manager.stop_all()
             self.heartbeat.stop()
             try:
